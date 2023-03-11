@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "chat-server",
+    "chat-client",
+    "chat-common"
+]
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
