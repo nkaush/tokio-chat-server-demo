@@ -98,6 +98,31 @@ impl Server {
         }
     }
 
+    fn pass_message(&mut self, client: &ClientName, msg: ChatProtocol) {
+        let mut to_remove: Vec<String> = Vec::new();
+
+        for (c, handle) in self.clients.iter() {
+            // Do not send message to client who sent us the message!
+            if c == client { continue }
+
+            if let Err(_) = handle.to_client.send(msg.clone()) {
+                to_remove.push(client.clone());
+            }
+        }
+
+        // If there were any SendErrors encountered when sending
+        // the message to client handler threads, then remove
+        // those clients and abort their threads
+        for c in to_remove.iter() {
+            error!("Failed to pass message to thread for client {c} ... aborting.");
+            self.clients.remove(c);
+        }
+
+        for c in to_remove.into_iter() {
+            self.pass_message(&c, ChatProtocol::ClientDisconnected(c.clone()));
+        }
+    }
+
     pub async fn serve(&mut self) {
         loop {
             select! {
@@ -112,27 +137,10 @@ impl Server {
                     }
                 },
                 Some(state) = self.from_clients.recv() => match state.msg {
-                    ClientStateMessageType::Message(m) => {
-                        let mut to_remove: Vec<String> = Vec::new();
-
-                        for (client, handle) in self.clients.iter() {
-                            // Do not send message to client who sent us the message!
-                            if client == &state.client { continue }
-
-                            if let Err(_) = handle.to_client.send(m.clone()) {
-                                to_remove.push(client.clone());
-                            }
-                        }
-
-                        // If there were any SendErrors encountered when sending
-                        // the message to client handler threads, then remove
-                        // those clients and abort their threads
-                        for c in to_remove.into_iter() {
-                            error!("Failed to pass message to thread for client {c} ... aborting.");
-                            self.clients.remove(&c);
-                        }
-                    },
-                    ClientStateMessageType::Error => { self.clients.remove(&state.client); }
+                    ClientStateMessageType::Message(m) => self.pass_message(&state.client, m),
+                    ClientStateMessageType::Error => { 
+                        self.clients.remove(&state.client); 
+                    }
                 }
             }
         } 
